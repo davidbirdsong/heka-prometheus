@@ -1,17 +1,14 @@
 package prometheus
 
 import (
-	"errors"
 	"github.com/mozilla-services/heka/message"
 	"github.com/mozilla-services/heka/pipeline"
 	"github.com/prometheus/client_golang/prometheus"
-	"io"
-	"io/ioutil"
-	"net/http"
-	"net/url"
+	//"net/http"
+	//"net/url"
 	"strings"
 	"sync"
-	"time"
+	//"time"
 )
 
 type PromOutConfig struct {
@@ -53,18 +50,12 @@ func (p *PromOut) Describe(ch chan<- *prometheus.Desc) {
 	defer p.rlock.RUnlock()
 
 	for _, gauge := range p.gauges {
-		c <- gauge.Desc()
-	}
-	for _, counter := range p.counters {
-		c <- counter.Desc()
+		ch <- gauge.Desc()
 	}
 	for _, gaugeVec := range p.gaugeVecs {
-		gaugeVec.Describe(c)
+		gaugeVec.Describe(ch)
 	}
 
-	for _, counterVec := range p.counterVecs {
-		counterVec.Describe(c)
-	}
 }
 func (p *PromOut) Collect(ch chan<- prometheus.Metric) {
 	p.rlock.Lock()
