@@ -4,7 +4,7 @@
 
 Metrics are created and registered with the Prometheus client using an immutable imptementation of the ```Metric``` interface [NewConstMetric](http://godoc.org/github.com/prometheus/client_golang/prometheus#NewConstMetric)
 
-The ```valuetype``` Heka field will serve to [type](http://godoc.org/github.com/prometheus/client_golang/prometheus#ValueType) the metric to: 
+The ```valuetype``` Heka field will serve to [```ValueType```](http://godoc.org/github.com/prometheus/client_golang/prometheus#ValueType) the metric to: 
 - ```GaugeValue```
 - ```CounterValue```
 -  ```UntypedValue```
