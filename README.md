@@ -8,6 +8,7 @@ The ```valuetype``` Heka field will serve to [type](http://godoc.org/github.com/
 - ```GaugeValue```
 - ```CounterValue```
 -  ```UntypedValue```
+
 ### Status Expiremental
 The input messsage format is still being fleshed out and might change.
 
