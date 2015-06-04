@@ -20,13 +20,13 @@ import (
 )
 
 var (
-	fieldVal         = "metric_value"
-	fieldName        = "metric_name"
-	fieldType        = "metric_type"
-	fieldHelp        = "metric_help"
-	fieldExpires     = "metric_expires"
-	fieldLabelnames  = "metric_labelnames"
-	fieldLabelvalues = "metric_labelvalues"
+	fieldVal         = "value"
+	fieldName        = "name"
+	fieldType        = "type"
+	fieldHelp        = "help"
+	fieldExpires     = "expires"
+	fieldLabelnames  = "labelnames"
+	fieldLabelvalues = "labelvalues"
 )
 
 type hekaSample struct {
