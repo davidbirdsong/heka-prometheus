@@ -80,3 +80,7 @@ git_clone(http://github.com/beorn7/perks master)
 
 add_external_plugin(git https://github.com/davidbirdsong/heka-promethus master)
 ```
+### TODO
+Add support for multi-value metric types
+-  [Histogram](http://godoc.org/github.com/prometheus/client_golang/prometheus#NewConstHistogram)
+-  [Summary](http://godoc.org/github.com/prometheus/client_golang/prometheus#NewConstSummary)
