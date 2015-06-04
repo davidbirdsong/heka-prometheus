@@ -19,7 +19,7 @@ Send a heka message from a decoder or filter of the following format.
 	Fields = {
 		
 		-- required, one of 'Gauge', 'Counter', or '*' 
-		-- non-empty but unmatched value will convert to Prometheus's 
+		-- non-empty but unmatched value will convert to Prometheus's UntypedValue
 		valuetype = 'Gauge', 
 		name = 'net_counters', -- required
 		help = 'number of packets on network', -- required
