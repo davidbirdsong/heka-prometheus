@@ -11,37 +11,134 @@ import (
 	"github.com/mozilla-services/heka/message"
 	"github.com/mozilla-services/heka/pipeline"
 	"github.com/prometheus/client_golang/prometheus"
-	//"net/http"
-	//"net/url"
+
 	"fmt"
 	"net/http"
 	"strings"
 	"sync"
-	//"time"
+	"time"
 )
 
 var (
-	metricFieldVal  = "metric_value"
-	metricFieldName = "metric_name"
-	metricFieldType = "metric_type"
+	metricFieldVal         = "metric_value"
+	metricFieldName        = "metric_name"
+	metricFieldType        = "metric_type"
+	metricFieldHelp        = "metric_help"
+	metricFieldLabelnames  = "metric_labelnames"
+	metricFieldLabelvalues = "metric_labelvalues"
 )
-var (
-	metricFieldTagK = "tags_key"
-	metricFieldTagV = "tags_val"
-)
+
+type hekaSample struct {
+	Value      float64
+	Labels     map[string]string
+	Expires    time.Time
+	Name, Help string
+	Type       prometheus.ValueType
+	desc       *prometheus.Desc
+}
+
+func newHekaSampe(m *message.Message, defaultTTL time.Duration) (*hekaSample, error) {
+	h := new(hekaSample)
+
+	returnEnforceSingleString := func(n string, required bool) (string, error) {
+
+		if f := m.FindFirstField(n); f != nil {
+			if s := f.GetValueString(); len(s) != 1 {
+				return "", fmt.Errorf("required singleton field: %s, with %d vals", s, len(s))
+
+			} else {
+				return s[0], nil
+			}
+
+		} else if required {
+			return "", fmt.Errorf("missing required field: %s", n)
+		} else {
+			return "", nil
+		}
+
+	}
+	var (
+		mtype string
+		err   error
+	)
+	mtype, err = returnEnforceSingleString(metricFieldType, true)
+	if err != nil {
+		return nil, err
+	}
+	switch strings.ToLower(mtype) {
+	case "gauge":
+		h.Type = prometheus.GaugeValue
+	case "counter":
+		h.Type = prometheus.CounterValue
+	default:
+		h.Type = prometheus.UntypedValue
+	}
+
+	h.Name, err = returnEnforceSingleString(metricFieldName, true)
+	if err != nil {
+		return nil, err
+	}
+	h.Help, _ = returnEnforceSingleString("Help", false)
+
+	if f := m.FindFirstField("Expires"); f != nil && len(f.GetValueInteger()) > 0 {
+		h.Expires = time.Unix(0, f.GetValueInteger()[0])
+
+	} else {
+
+		h.Expires = time.Unix(0, m.GetTimestamp()).Add(defaultTTL)
+	}
+
+	if f := m.FindFirstField(metricFieldVal); f != nil && len(f.GetValueDouble()) == 1 {
+		h.Value = f.GetValueDouble()[0]
+
+	} else {
+		return nil, fmt.Errorf("single, required field invalid: %s", metricFieldVal)
+
+	}
+
+	lNameField := m.FindFirstField(metricFieldLabelnames)
+	lValField := m.FindFirstField(metricFieldLabelvalues)
+	if lNameField != nil {
+		if lValField == nil {
+			return nil, fmt.Errorf("missing label values for label names field")
+
+		}
+		if lNameField.GetValueType() != message.Field_STRING ||
+			lValField.GetValueType() != message.Field_STRING {
+			return nil, fmt.Errorf("incorrect data type in label fields")
+		}
+		names := lNameField.GetValueString()
+		vals := lValField.GetValueString()
+		if len(names) != len(vals) {
+			return nil, fmt.Errorf("mismatched name value label field")
+		}
+		h.Labels = make(map[string]string)
+		for i, n := range names {
+			h.Labels[n] = vals[i]
+		}
+
+	}
+
+	h.desc = prometheus.NewDesc(h.Name, h.Help, []string{}, h.Labels)
+
+	return h, nil
+
+}
 
 type PromOutConfig struct {
-	Address string
+	Address    string
+	DefaultTTL time.Duration
 }
 
 type PromOut struct {
-	config    *PromOutConfig
-	rlock     *sync.RWMutex
-	gaugeVecs map[string]map[string]*prometheus.GaugeVec
-	gauges    map[string]prometheus.Gauge
+	config  *PromOutConfig
+	ch      chan *hekaSample
+	rlock   *sync.RWMutex
+	samples map[string]*hekaSample
+
 	inSuccess prometheus.Counter
 	inFailure prometheus.Counter
-	l         func(string)
+	errLogger func(error)
 }
 
 func (p *PromOut) ConfigStruct() interface{} {
@@ -51,15 +148,13 @@ func (p *PromOut) ConfigStruct() interface{} {
 }
 
 func (p *PromOut) Init(config interface{}) error {
-	p.gaugeVecs = make(map[string]map[string]*prometheus.GaugeVec)
-	p.gauges = make(map[string]prometheus.Gauge)
-
 	p.inSuccess = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "hekagateway_msg_success",
 			Help: "properly formatted messages",
 		},
 	)
+	p.samples = make(map[string]*hekaSample)
 
 	p.inFailure = prometheus.NewCounter(
 		prometheus.CounterOpts{
@@ -70,6 +165,7 @@ func (p *PromOut) Init(config interface{}) error {
 
 	p.config = config.(*PromOutConfig)
 	p.rlock = &sync.RWMutex{}
+
 	e := prometheus.Register(p)
 	if e != nil {
 		return e
@@ -78,150 +174,86 @@ func (p *PromOut) Init(config interface{}) error {
 	http.Handle("/metrics", prometheus.Handler())
 	go http.ListenAndServe(p.config.Address, nil)
 	return nil
-
 }
 
 func (p *PromOut) Describe(ch chan<- *prometheus.Desc) {
 
 	p.rlock.RLock()
-	defer p.rlock.RUnlock()
-
-	for _, gauge := range p.gauges {
-		ch <- gauge.Desc()
-	}
-	for _, v := range p.gaugeVecs {
-		for r, gaugeVec := range v {
-			if p.l != nil {
-				p.l(fmt.Sprintf("Describe: %s", r))
-				p.l(r)
-			}
-
-			gaugeVec.Describe(ch)
-		}
-	}
 	ch <- p.inSuccess.Desc()
 	ch <- p.inFailure.Desc()
+	defer p.rlock.RUnlock()
 
 }
 func (p *PromOut) Collect(ch chan<- prometheus.Metric) {
 	p.rlock.Lock()
 	defer p.rlock.Unlock()
-	for _, v := range p.gaugeVecs {
-		for r, gv := range v {
-			if p.l != nil {
-				p.l(fmt.Sprintf("Collect: %s", r))
-			}
 
-			gv.Collect(ch)
-		}
-	}
-	for _, g := range p.gauges {
-		ch <- g
-	}
 	ch <- p.inSuccess
 	ch <- p.inFailure
-}
 
-func (p *PromOut) Run(or pipeline.OutputRunner, h pipeline.PluginHelper) (err error) {
-	var (
-		gv    *prometheus.GaugeVec
-		g     prometheus.Gauge
-		m     *pMetric
-		found bool
-		f     *message.Field
-	)
-	p.l = or.LogMessage
+	samples := make([]*hekaSample, 0, len(p.samples))
+	p.rlock.RLock()
+	for _, s := range samples {
+		samples = append(samples, s)
+	}
+	p.rlock.RUnlock()
 
-	for pack := range or.InChan() {
-
-		m, err = newPMetric(pack.Message)
-		if err != nil {
-			or.LogError(err)
-			p.inFailure.Inc()
-			pack.Recycle()
+	now := time.Now()
+	for _, s := range samples {
+		if now.After(s.Expires) {
 			continue
-
 		}
 
-		switch m.mType {
+		m, err := prometheus.NewConstMetric(s.desc, s.Type, s.Value)
+		if err != nil {
 
-		case "gaugevec":
-
-			p.rlock.Lock()
-
-			if f = pack.Message.FindFirstField(metricFieldTagK); f == nil {
-				or.LogError(fmt.Errorf("type: %s missing mandatory field: '%s'", m.mType, metricFieldTagK))
-
-				p.inFailure.Inc()
-				pack.Recycle()
-				continue
+			if p.errLogger != nil {
+				p.errLogger(err)
 			}
+			continue
+		}
+		ch <- m
+	}
+}
 
-			tagsKeys := f.GetValueString()
-			tagsLookup := strings.Join(tagsKeys, "")
+func (p *PromOut) Run(or pipeline.OutputRunner, ph pipeline.PluginHelper) (err error) {
+	var (
+		running bool = true
+		pack    *pipeline.PipelinePack
+		h       *hekaSample
+	)
 
-			if f = pack.Message.FindFirstField(metricFieldTagV); f == nil {
-			}
-			tagsVals := f.GetValueString()
-			if len(tagsKeys) != len(tagsVals) {
-				or.LogError(fmt.Errorf("tag fields mismatched lengths: '%s/%s'",
-					strings.Join(tagsKeys, ","),
-					strings.Join(tagsVals, ","),
-				))
+	ticker := time.NewTicker(time.Minute).C
+	for running {
+		select {
+		case pack, running = <-or.InChan():
+			h, err = newHekaSampe(pack.Message, p.config.DefaultTTL)
+			if err == nil {
 
-				p.inFailure.Inc()
-				pack.Recycle()
-				continue
-
-			}
-			gopts := m.gaugeOpts(pack.Message)
-
-			_, found = p.gaugeVecs[m.mName]
-			if !found {
-				p.gaugeVecs[m.mName] = make(map[string]*prometheus.GaugeVec)
-				p.gaugeVecs[m.mName][tagsLookup] = prometheus.NewGaugeVec(gopts, tagsKeys)
-				gv, _ = p.gaugeVecs[m.mName][tagsLookup]
+				p.rlock.Lock()
+				p.samples[h.desc.String()] = h
+				p.rlock.Unlock()
+				p.inSuccess.Inc()
 
 			} else {
-				gv, found = p.gaugeVecs[m.mName][tagsLookup]
-				if !found {
-					p.gaugeVecs[m.mName][tagsLookup] = prometheus.NewGaugeVec(gopts, tagsKeys)
+				or.LogError(err)
+				p.inFailure.Inc()
+			}
+
+			pack.Recycle()
+
+		case <-ticker:
+			// clearn up expired samples
+			now := time.Now()
+			p.rlock.Lock()
+			for k, sample := range p.samples {
+				if now.After(sample.Expires) {
+					delete(p.samples, k)
 				}
 			}
 
-			if g, err = gv.GetMetricWithLabelValues(tagsKeys...); err != nil {
-				or.LogError(err)
-				p.inFailure.Inc()
-				pack.Recycle()
-				continue
-			}
-			gv.Reset()
-			g.Set(m.v)
-			p.inSuccess.Inc()
-
-			p.rlock.Unlock()
-
-		case "gauge":
-			p.rlock.Lock()
-			g, found = p.gauges[m.mName]
-			if !found {
-				p.gauges[m.mName] = prometheus.NewGauge(m.gaugeOpts(pack.Message))
-				g, _ = p.gauges[m.mName]
-			}
-			g.Set(m.v)
-			p.inSuccess.Inc()
-
-			p.rlock.Unlock()
-			//g.Set(
-		default:
-			or.LogError(fmt.Errorf("unsupported message Type: %s", m.mType))
-			p.inFailure.Inc()
-			//pack.Recycle()
-			//continue
-
 		}
 
-		pack.Recycle()
 	}
 	return nil
 }
@@ -230,79 +262,4 @@ func init() {
 	pipeline.RegisterPlugin("PrometheusOutput", func() interface{} {
 		return new(PromOut)
 	})
-}
-
-func newPMetric(m *message.Message) (*pMetric, error) {
-
-	var (
-		pm = &pMetric{}
-		f  *message.Field
-	)
-	requiredMissing := func(s string) error {
-		return fmt.Errorf("missing required field: %s", s)
-	}
-
-	singleFieldWrongCount := func(s string, i int) error {
-		return fmt.Errorf("required singleton field: %s, with %d vals", s, i)
-	}
-
-	if f = m.FindFirstField(metricFieldVal); f != nil {
-		d := f.GetValueDouble()
-		if len(d) != 1 {
-			return nil, singleFieldWrongCount(metricFieldVal, len(d))
-		}
-		pm.v = d[0]
-	} else {
-
-		return nil, requiredMissing(metricFieldVal)
-
-	}
-
-	if f = m.FindFirstField(metricFieldName); f != nil {
-		if s := f.GetValueString(); len(s) != 1 {
-			return nil, singleFieldWrongCount(metricFieldName, len(s))
-
-		} else {
-			pm.mName = s[0]
-		}
-
-	} else {
-		return nil, requiredMissing(metricFieldName)
-	}
-
-	if f = m.FindFirstField(metricFieldType); f != nil {
-		if s := f.GetValueString(); len(s) != 1 {
-			return nil, singleFieldWrongCount(metricFieldType, len(s))
-
-		} else {
-			pm.mType = strings.ToLower(s[0])
-		}
-
-	} else {
-		return nil, requiredMissing(metricFieldType)
-	}
-
-	return pm, nil
-}
-
-type pMetric struct {
-	mType, mName string
-	v            float64
-}
-
-func (p *pMetric) gaugeOpts(m *message.Message) prometheus.GaugeOpts {
-
-	var f *message.Field
-	gopts := prometheus.GaugeOpts{
-		Name: p.mName,
-	}
-	if f = m.FindFirstField("Help"); f != nil {
-		gopts.Help = f.GetValueString()[0]
-
-	}
-	if f = m.FindFirstField("Namespace"); f != nil {
-		gopts.Namespace = f.GetValueString()[0]
-
-	}
-	return gopts
 }
