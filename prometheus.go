@@ -20,7 +20,7 @@ import (
 )
 
 var (
-	fieldVal         = "value"
+	fieldVal         = "valuetype"
 	fieldName        = "name"
 	fieldType        = "type"
 	fieldHelp        = "help"
