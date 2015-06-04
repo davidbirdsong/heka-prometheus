@@ -251,6 +251,7 @@ func (p *PromOut) Run(or pipeline.OutputRunner, ph pipeline.PluginHelper) (err e
 					delete(p.samples, k)
 				}
 			}
+			p.rlock.Unlock()
 
 		}
 
