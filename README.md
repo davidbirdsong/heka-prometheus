@@ -17,8 +17,8 @@ Send a heka message from a sandbox decoder or filter of the following format.
 
 ```lua
 {
-	Logger = "prometheus_data", -- only matters for message_matcher
-	Type = "prom_translated", -- only matters for message_matcher
+	Logger = "Anything", -- only matters for message_matcher
+	Type = "AlsoNotImportant", -- only matters for message_matcher
 	Payload = "", -- not examined 
 	Fields = {
 		
@@ -47,7 +47,7 @@ Add the following ```toml``` to heka:
 ```toml
 [prometheus_out]
 type = "PrometheusOutput"
-message_matcher = 'Logger == "generate_prom_data"'
+message_matcher = 'Logger == "Anything"'
 Address = "127.0.0.1:9112"
 encoder = "RstEncoder"
 
