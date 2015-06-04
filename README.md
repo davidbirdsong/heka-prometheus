@@ -9,7 +9,7 @@ The ```valuetype``` Heka field will serve to [type](http://godoc.org/github.com/
 -  ```UntypedValue```
 
 ### Usage
-Send a heka message from a decoder or filter of the following format.
+Send a heka message from a sandbox decoder or filter of the following format.
 
 ```lua
 {
