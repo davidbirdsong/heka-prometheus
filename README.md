@@ -2,7 +2,7 @@
 
 [mozilla heka](https://github.com/mozilla-services/heka) output plugin which exposes an endpoint for prometheus to scrape. The internals are heavily influenced by the [collectd_exporter](https://github.com/prometheus/collectd_exporter)
 
-Metrics are created and registered with the Prometheus client using an immutable imptementation of the ```Metric``` interface [NewConstMetric](http://godoc.org/github.com/prometheus/client_golang/prometheus#NewConstMetric)
+Metrics are created and registered with the Prometheus client using an immutable implementation of the ```Metric``` interface [NewConstMetric](http://godoc.org/github.com/prometheus/client_golang/prometheus#NewConstMetric)
 
 The ```valuetype``` Heka field will serve to [```ValueType```](http://godoc.org/github.com/prometheus/client_golang/prometheus#ValueType) the metric to: 
 - ```GaugeValue```
