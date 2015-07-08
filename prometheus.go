@@ -10,6 +10,7 @@ package prometheus
 import (
 	"github.com/mozilla-services/heka/message"
 	"github.com/mozilla-services/heka/pipeline"
+	"github.com/pquerna/ffjson/ffjson"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"fmt"
@@ -19,25 +20,55 @@ import (
 	"time"
 )
 
-var (
-	fieldVal         = "valuetype"
-	fieldName        = "name"
-	fieldType        = "type"
-	fieldHelp        = "help"
-	fieldExpires     = "expires"
-	fieldLabelnames  = "labelnames"
-	fieldLabelvalues = "labelvalues"
-)
-
 type hekaSample struct {
-	Value      float64
-	Labels     map[string]string
-	Name, Help string
-	Expires    time.Time
-	desc       *prometheus.Desc
-	Type       prometheus.ValueType
+	metric  *ConstMetric
+	Expires time.Time
+	desc    *prometheus.Desc
+	Type    prometheus.ValueType
 }
 
+func newHekaSamplesScalar(m *message.Message, defaultTTL time.Duration) ([]*hekaSample, error) {
+	var (
+		cmetrics ConstMetrics
+		err      error
+	)
+	hsamples := make([]*hekaSample)
+
+	if err = ffjson.Unmarshal([]byte(m.GetPayload()), &cmetrics); err != nil {
+		return hsamples, err
+	}
+	for _, c := range cmetrics {
+		h := new(hekaSample)
+		h.metric = c
+
+		if c.Expires != 0 {
+			h.Expires = time.Unix(0,
+				m.GetTimestamp()).Add(time.Duration(c.Expires * 1e9))
+
+		} else {
+			h.Expires = time.Unix(0, m.GetTimestamp()).Add(defaultTTL)
+
+		}
+
+		h.Expires = time.Unix(0, m.GetTimestamp()).Add(c.Expires)
+		h.desc = prometheus.NewDesc(c.Name, c.Help, []string{}, c.Labels)
+
+		switch strings.ToLower(c.ValueType) {
+
+		case "gauge":
+			h.Type = prometheus.GaugeValue
+		case "counter":
+			h.Type = prometheus.CounterValue
+		default:
+			h.Type = prometheus.UntypedValue
+		}
+		append(hsamples, h)
+
+	}
+	return hsamples, nil
+}
+
+/*
 func newHekaSample(m *message.Message, defaultTTL time.Duration) (*hekaSample, error) {
 	h := new(hekaSample)
 	returnEnforceSingleString := func(n string, required bool) (string, error) {
@@ -65,14 +96,6 @@ func newHekaSample(m *message.Message, defaultTTL time.Duration) (*hekaSample, e
 	if err != nil {
 		return nil, err
 	}
-	switch strings.ToLower(mtype) {
-	case "gauge":
-		h.Type = prometheus.GaugeValue
-	case "counter":
-		h.Type = prometheus.CounterValue
-	default:
-		h.Type = prometheus.UntypedValue
-	}
 
 	h.Name, err = returnEnforceSingleString(fieldName, true)
 	if err != nil {
@@ -88,7 +111,6 @@ func newHekaSample(m *message.Message, defaultTTL time.Duration) (*hekaSample, e
 
 	} else {
 
-		h.Expires = time.Unix(0, m.GetTimestamp()).Add(defaultTTL)
 	}
 
 	if f := m.FindFirstField(fieldVal); f != nil && len(f.GetValueDouble()) == 1 {
@@ -126,6 +148,7 @@ func newHekaSample(m *message.Message, defaultTTL time.Duration) (*hekaSample, e
 	return h, nil
 
 }
+*/
 
 type PromOutConfig struct {
 	Address    string
@@ -210,7 +233,7 @@ func (p *PromOut) Collect(ch chan<- prometheus.Metric) {
 		if now.After(s.Expires) {
 			continue
 		}
-		m, err := prometheus.NewConstMetric(s.desc, s.Type, s.Value)
+		m, err := prometheus.NewConstMetric(s.desc, s.Type, s.metric.Value)
 		if err != nil {
 
 			if p.errLogger != nil {
@@ -224,9 +247,10 @@ func (p *PromOut) Collect(ch chan<- prometheus.Metric) {
 
 func (p *PromOut) Run(or pipeline.OutputRunner, ph pipeline.PluginHelper) (err error) {
 	var (
-		running bool = true
-		pack    *pipeline.PipelinePack
-		h       *hekaSample
+		running    bool = true
+		pack       *pipeline.PipelinePack
+		hsamples   []*hekaSample
+		metricType string
 	)
 
 	ticker := time.NewTicker(time.Minute).C
@@ -236,14 +260,35 @@ func (p *PromOut) Run(or pipeline.OutputRunner, ph pipeline.PluginHelper) (err e
 			if !running {
 				continue
 			}
-			h, err = newHekaSample(pack.Message, p.defaultDuration)
-			if err == nil {
 
-				or.LogMessage(h.desc.String())
+			metricType = "scalar"
+
+			if f := pack.Message.FindFirstField("metricType"); f != nil {
+				if s := f.GetValueString(); len(s) != 1 {
+					metricType == s
+				}
+			}
+			switch string.ToLower(metricType) {
+			case "scalar", "":
+				h, err = newHekaSampleScalar(pack.Message, p.defaultDuration)
+			default:
+				or.LogError("unsupported metricType: %s", metricType)
+				continue
+
+				p.inFailure.Inc()
+				pack.Recycle()
+
+			}
+
+			hsamples, err = newHekaSampleScalar(pack.Message, p.defaultDuration)
+			if err == nil {
 				p.rlock.Lock()
-				p.samples[h.desc.String()] = h
+				for _, h := range hsamples {
+					or.LogMessage(h.desc.String())
+					p.samples[h.desc.String()] = h
+					p.inSuccess.Inc()
+				}
 				p.rlock.Unlock()
-				p.inSuccess.Inc()
 
 			} else {
 				b, _ := or.Encode(pack)
