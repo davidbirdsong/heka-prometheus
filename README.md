@@ -10,46 +10,58 @@ The ```valuetype``` Heka field will serve to [```ValueType```](http://godoc.org/
 -  ```UntypedValue```
 
 ### Status Expiremental
-The input messsage format is still being fleshed out and might change.
+As advertised the internal message format has changed from a native Heka message to a json payload. Filters need to be able to emit 100's of messages on timer_event. The author wasn't able to grok how to encode many metric events while still providing an expressive albeit arbitrary tagging of each metric on a single Heka message.
+
+The json payload solves that and also means external stuff can be blindly forwarded too.
 
 ### Usage
-Send a heka message from a sandbox decoder or filter of the following format.
+Send a heka message to this output plugin w/ a json message Payload 
+```json
+[{
+  "name": "foo_metric1",
+  "help": "foo metric counts stuff",
+  "value": 100, # will 
+  "valuetype": "Counter",
+  "labels": {
+    "service": "hooman1",
+    "role": "hooman_runner1"
+  }
+},
+{
+  "name": "foo_metric2",
+  "help": "foo metric counts stuff",
+  "value": 200,
+  "expires": 20,
+  "valuetype": "Counter",
+  "labels": {
+    "service": "hooman-2",
+    "role": "hooman_runner-2"
+  }
+}
+]
+```
 
 ```lua
 {
-	Logger = "Anything", -- only matters for message_matcher
-	Type = "AlsoNotImportant", -- only matters for message_matcher
-	Payload = "", -- not examined 
+	Payload = <json>
 	Fields = {
-		
-		-- required, one of 'Gauge', 'Counter', or '*' 
-		-- non-empty but unmatched value will convert to Prometheus's UntypedValue
-		valuetype = 'Gauge', 
-		name = 'net_counters', -- required
-		help = 'number of packets on network', -- required
-
-		-- required, must be value_type=3 
-		-- see https://github.com/mozilla-services/heka/blob/dev/message/message.proto#L23
-		value = {value_type=3, value=100}, 
-
-		expires = '70s',  -- optional, golang duration strings '100ms' etc..
-
-		-- optional, but table lengths must match each other
-		-- type is inferred by heka, but must be string
-		labelnames = {'host', 'service'},  
-		labelvalues = {'machine1', 'webapp'},
+		metricType = 'scalar',
 	}
 }
 
 ```
+use *scalar* for ```Fields.metricType``` for counters and gauges.
+
+future types could specify Summaries and Histograms
 
 Add the following ```toml``` to heka:
 ```toml
 [prometheus_out]
 type = "PrometheusOutput"
-message_matcher = 'Logger == "Anything"'
+message_matcher = 'Logger == "Anything"' # anything to route the message properly here
 Address = "127.0.0.1:9112"
 encoder = "RstEncoder"
+default_ttl = '15s' # applied to any metrics w/ no expires, defautls to 90s
 
 ```
 (encoder is specified for error logging only )

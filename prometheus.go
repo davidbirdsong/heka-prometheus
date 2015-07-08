@@ -8,7 +8,7 @@
 package prometheus
 
 import (
-	"github.com/mozilla-services/heka/message"
+	//"github.com/mozilla-services/heka/message"
 	"github.com/mozilla-services/heka/pipeline"
 	"github.com/pquerna/ffjson/ffjson"
 	"github.com/prometheus/client_golang/prometheus"
@@ -27,14 +27,14 @@ type hekaSample struct {
 	Type    prometheus.ValueType
 }
 
-func newHekaSampleScalar(m *message.Message, defaultTTL time.Duration) ([]*hekaSample, error) {
+func newHekaSampleScalar(payload []byte, defaultTTL time.Duration, timestamp time.Time) ([]*hekaSample, error) {
 	var (
 		cmetrics ConstMetrics
 		err      error
 	)
 	hsamples := make([]*hekaSample, 0)
 
-	if err = ffjson.Unmarshal([]byte(m.GetPayload()), &cmetrics); err != nil {
+	if err = ffjson.Unmarshal(payload, &cmetrics); err != nil {
 		return hsamples, err
 	}
 	for _, c := range cmetrics {
@@ -42,11 +42,12 @@ func newHekaSampleScalar(m *message.Message, defaultTTL time.Duration) ([]*hekaS
 		h.metric = c
 
 		if c.Expires != 0 {
+
 			h.Expires = time.Unix(0,
-				m.GetTimestamp()).Add(time.Duration(c.Expires * 1e9))
+				timestamp.UnixNano()).Add(time.Duration(c.Expires * 1e9))
 
 		} else {
-			h.Expires = time.Unix(0, m.GetTimestamp()).Add(defaultTTL)
+			h.Expires = time.Unix(0, timestamp.UnixNano()).Add(defaultTTL)
 
 		}
 
@@ -69,7 +70,7 @@ func newHekaSampleScalar(m *message.Message, defaultTTL time.Duration) ([]*hekaS
 
 type PromOutConfig struct {
 	Address    string
-	DefaultTTL string
+	DefaultTTL string `toml:"default_ttl"`
 }
 
 type PromOut struct {
@@ -187,8 +188,11 @@ func (p *PromOut) Run(or pipeline.OutputRunner, ph pipeline.PluginHelper) (err e
 			}
 			switch strings.ToLower(metricType) {
 			case "scalar", "":
-
-				hsamples, err = newHekaSampleScalar(pack.Message, p.defaultDuration)
+				payload := []byte(pack.Message.GetPayload())
+				msgTime := time.Unix(0, pack.Message.GetTimestamp())
+				hsamples, err = newHekaSampleScalar(
+					payload, p.defaultDuration, msgTime,
+				)
 				if err == nil {
 					p.rlock.Lock()
 					for _, h := range hsamples {
