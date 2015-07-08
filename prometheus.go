@@ -61,7 +61,7 @@ func newHekaSampleScalar(m *message.Message, defaultTTL time.Duration) ([]*hekaS
 		default:
 			h.Type = prometheus.UntypedValue
 		}
-		append(hsamples, h)
+		hsamples = append(hsamples, h)
 
 	}
 	return hsamples, nil
@@ -182,7 +182,7 @@ func (p *PromOut) Run(or pipeline.OutputRunner, ph pipeline.PluginHelper) (err e
 
 			if f := pack.Message.FindFirstField("metricType"); f != nil {
 				if s := f.GetValueString(); len(s) == 1 {
-					metricType == s[0]
+					metricType = s[0]
 				}
 			}
 			switch strings.ToLower(metricType) {
@@ -201,11 +201,12 @@ func (p *PromOut) Run(or pipeline.OutputRunner, ph pipeline.PluginHelper) (err e
 				} else {
 					b, _ := or.Encode(pack)
 					or.LogError(fmt.Errorf("%v message\n<msg>\n%s\n</msg>", err, b))
+
 					p.inFailure.Inc()
 				}
 
 			default:
-				or.LogError("unsupported metricType: %s", metricType)
+				or.LogError(fmt.Errorf("unsupported metricType: %s", metricType))
 				continue
 
 				p.inFailure.Inc()
