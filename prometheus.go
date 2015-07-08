@@ -27,12 +27,12 @@ type hekaSample struct {
 	Type    prometheus.ValueType
 }
 
-func newHekaSamplesScalar(m *message.Message, defaultTTL time.Duration) ([]*hekaSample, error) {
+func newHekaSampleScalar(m *message.Message, defaultTTL time.Duration) ([]*hekaSample, error) {
 	var (
 		cmetrics ConstMetrics
 		err      error
 	)
-	hsamples := make([]*hekaSample)
+	hsamples := make([]*hekaSample, 0)
 
 	if err = ffjson.Unmarshal([]byte(m.GetPayload()), &cmetrics); err != nil {
 		return hsamples, err
@@ -50,7 +50,6 @@ func newHekaSamplesScalar(m *message.Message, defaultTTL time.Duration) ([]*heka
 
 		}
 
-		h.Expires = time.Unix(0, m.GetTimestamp()).Add(c.Expires)
 		h.desc = prometheus.NewDesc(c.Name, c.Help, []string{}, c.Labels)
 
 		switch strings.ToLower(c.ValueType) {
@@ -67,88 +66,6 @@ func newHekaSamplesScalar(m *message.Message, defaultTTL time.Duration) ([]*heka
 	}
 	return hsamples, nil
 }
-
-/*
-func newHekaSample(m *message.Message, defaultTTL time.Duration) (*hekaSample, error) {
-	h := new(hekaSample)
-	returnEnforceSingleString := func(n string, required bool) (string, error) {
-
-		if f := m.FindFirstField(n); f != nil {
-			if s := f.GetValueString(); len(s) != 1 {
-				return "", fmt.Errorf("required singleton field: %s, with %d vals", s, len(s))
-
-			} else {
-				return s[0], nil
-			}
-
-		} else if required {
-			return "", fmt.Errorf("missing required field: %s", n)
-		} else {
-			return "", nil
-		}
-
-	}
-	var (
-		mtype string
-		err   error
-	)
-	mtype, err = returnEnforceSingleString(fieldType, true)
-	if err != nil {
-		return nil, err
-	}
-
-	h.Name, err = returnEnforceSingleString(fieldName, true)
-	if err != nil {
-		return nil, err
-	}
-	h.Help, err = returnEnforceSingleString(fieldHelp, true)
-	if err != nil {
-		return nil, err
-	}
-
-	if f := m.FindFirstField(fieldExpires); f != nil && len(f.GetValueInteger()) > 0 {
-		h.Expires = time.Unix(0, f.GetValueInteger()[0])
-
-	} else {
-
-	}
-
-	if f := m.FindFirstField(fieldVal); f != nil && len(f.GetValueDouble()) == 1 {
-		h.Value = f.GetValueDouble()[0]
-
-	} else {
-		return nil, fmt.Errorf("single, required field invalid: %s", fieldVal)
-
-	}
-
-	lNameField := m.FindFirstField(fieldLabelnames)
-	lValField := m.FindFirstField(fieldLabelvalues)
-	if lNameField != nil {
-		if lValField == nil {
-			return nil, fmt.Errorf("missing label values for label names field")
-
-		}
-		if lNameField.GetValueType() != message.Field_STRING ||
-			lValField.GetValueType() != message.Field_STRING {
-			return nil, fmt.Errorf("incorrect data type in label fields")
-		}
-		names := lNameField.GetValueString()
-		vals := lValField.GetValueString()
-		if len(names) != len(vals) {
-			return nil, fmt.Errorf("mismatched name value label field")
-		}
-		h.Labels = make(map[string]string)
-		for i, n := range names {
-			h.Labels[n] = vals[i]
-		}
-	}
-
-	h.desc = prometheus.NewDesc(h.Name, h.Help, []string{}, h.Labels)
-
-	return h, nil
-
-}
-*/
 
 type PromOutConfig struct {
 	Address    string
@@ -264,13 +181,29 @@ func (p *PromOut) Run(or pipeline.OutputRunner, ph pipeline.PluginHelper) (err e
 			metricType = "scalar"
 
 			if f := pack.Message.FindFirstField("metricType"); f != nil {
-				if s := f.GetValueString(); len(s) != 1 {
-					metricType == s
+				if s := f.GetValueString(); len(s) == 1 {
+					metricType == s[0]
 				}
 			}
-			switch string.ToLower(metricType) {
+			switch strings.ToLower(metricType) {
 			case "scalar", "":
-				h, err = newHekaSampleScalar(pack.Message, p.defaultDuration)
+
+				hsamples, err = newHekaSampleScalar(pack.Message, p.defaultDuration)
+				if err == nil {
+					p.rlock.Lock()
+					for _, h := range hsamples {
+						or.LogMessage(h.desc.String())
+						p.samples[h.desc.String()] = h
+						p.inSuccess.Inc()
+					}
+					p.rlock.Unlock()
+
+				} else {
+					b, _ := or.Encode(pack)
+					or.LogError(fmt.Errorf("%v message\n<msg>\n%s\n</msg>", err, b))
+					p.inFailure.Inc()
+				}
+
 			default:
 				or.LogError("unsupported metricType: %s", metricType)
 				continue
@@ -278,22 +211,6 @@ func (p *PromOut) Run(or pipeline.OutputRunner, ph pipeline.PluginHelper) (err e
 				p.inFailure.Inc()
 				pack.Recycle()
 
-			}
-
-			hsamples, err = newHekaSampleScalar(pack.Message, p.defaultDuration)
-			if err == nil {
-				p.rlock.Lock()
-				for _, h := range hsamples {
-					or.LogMessage(h.desc.String())
-					p.samples[h.desc.String()] = h
-					p.inSuccess.Inc()
-				}
-				p.rlock.Unlock()
-
-			} else {
-				b, _ := or.Encode(pack)
-				or.LogError(fmt.Errorf("%v message\n<msg>\n%s\n</msg>", err, b))
-				p.inFailure.Inc()
 			}
 
 			pack.Recycle()
