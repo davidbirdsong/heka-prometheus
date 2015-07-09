@@ -13,6 +13,7 @@ func TestBasicJson(t *testing.T) {
   "single": [
     {
       "name": "counter1",
+      "value": 10000,
       "valuetype": "counter",
       "help": "a counter that counts stuff",
       "labels": {
@@ -44,6 +45,7 @@ func TestBasicJson(t *testing.T) {
   "single": [
     {
       "name": "counter1",
+      "value": 10000,
       "valuetype": "counter",
       "help": "a counter that counts stuff",
       "labels": {
@@ -53,6 +55,7 @@ func TestBasicJson(t *testing.T) {
     {
       "name": "gauge2",
       "expires": 100,
+      "value": 200.23,
       "valuetype": "gauge",
       "help": "the gas tank",
       "labels": {

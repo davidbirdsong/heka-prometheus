@@ -8,7 +8,6 @@
 package prometheus
 
 import (
-	//"github.com/mozilla-services/heka/message"
 	"github.com/mozilla-services/heka/pipeline"
 	"github.com/pquerna/ffjson/ffjson"
 	"github.com/prometheus/client_golang/prometheus"
@@ -279,15 +278,13 @@ func (p *PromOut) Run(or pipeline.OutputRunner, ph pipeline.PluginHelper) (err e
 			if err == nil {
 				p.rlock.Lock()
 				for _, h := range hsamples {
-					or.LogMessage(h.desc.String())
 					p.samples[h.desc.String()] = h
 					p.inSuccess.Inc()
 				}
 				p.rlock.Unlock()
 
 			} else {
-				b, _ := or.Encode(pack)
-				or.LogError(fmt.Errorf("%v message\n<msg>\n%s\n</msg>", err, b))
+				or.LogError(fmt.Errorf("%v message\n<msg>\n%s\n</msg>", err, payload))
 
 				p.inFailure.Inc()
 			}
