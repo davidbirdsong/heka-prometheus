@@ -1,4 +1,4 @@
-# heka-promethus
+# heka-prometheus
 
 [mozilla heka](https://github.com/mozilla-services/heka) output plugin which exposes an endpoint for prometheus to scrape. The internals are heavily influenced by the [collectd_exporter](https://github.com/prometheus/collectd_exporter)
 
