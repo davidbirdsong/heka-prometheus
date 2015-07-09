@@ -20,7 +20,7 @@ Lists of each are sent as a subdocument of each key.
 
 ```expires``` specifies seconds the metric should survive. Expiration is calculated by adding expires to the message timestamp (heka has timestamps.)
 
-Metrics with not expires inherit from the default specified in toml.
+Metrics lacking ```expires``` inherit from the default specified in toml.
 
 entire body example:
 ```json
