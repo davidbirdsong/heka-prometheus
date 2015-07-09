@@ -18,6 +18,10 @@ Lists of each are sent as a subdocument of each key.
 
 ```single``` requires the ```valuetype``` key which specifies counter or gauge.
 
+```expires``` specifies seconds the metric should survive. Expiration is calculated by adding expires to the message timestamp (heka has timestamps.)
+
+Metrics with not expires inherit from the default specified in toml.
+
 entire body example:
 ```json
 {
@@ -77,13 +81,9 @@ Add the following ```toml``` to heka:
 type = "PrometheusOutput"
 message_matcher = 'Logger == "Anything"' # anything to route the message properly here
 Address = "127.0.0.1:9112"
-encoder = "RstEncoder"
 default_ttl = '15s' # applied to any metrics w/ no expires, defautls to 90s
 
 ```
-(encoder is specified for error logging only )
-
-
 curl the new prometheus in heka:
 ```
 [david@foulplay ~]$ curl http://127.0.0.1:9112/metrics  
