@@ -4,13 +4,8 @@
 
 Metrics are created and registered with the Prometheus client using an immutable implementation of the ```Metric``` interface [NewConstMetric](http://godoc.org/github.com/prometheus/client_golang/prometheus#NewConstMetric)
 
-The ```valuetype``` Heka field will serve to [```ValueType```](http://godoc.org/github.com/prometheus/client_golang/prometheus#ValueType) the metric to: 
-- ```GaugeValue```
-- ```CounterValue```
--  ```UntypedValue```
-
 ### Status Expiremental
-As advertised the internal message format has changed from a native Heka message to a json payload. Filters need to be able to emit 100's of messages on timer_event. The author wasn't able to grok how to encode many metric events while still providing an expressive albeit arbitrary tagging of each metric on a single Heka message.
+As advertised the internal message format has changed from a native Heka message to a json payload. Filters need to be able to emit 100's of messages on timer_event. The author wasn't able to grok how to encode many metric events while still providing an expressive albeit arbitrary tagging of each metric on a single Heka message. Sending 100's of new messages from a filter hung the router pretty badly.
 
 The json payload solves that and also means external stuff can be blindly forwarded too.
 
