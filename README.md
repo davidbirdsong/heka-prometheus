@@ -10,7 +10,7 @@ As advertised the internal message format has changed from a native Heka message
 The json payload solves that and also means external stuff can be blindly forwarded too.
 
 ### Usage
-Send a heka message to this output plugin w/ a json message Payload.
+Send a heka message to this output plugin w/ a json message in the ```Payload``` field.
 
 The top level keys are one of ```single```, ```histogram```, and ```summary``` which translate to the different Constant Metrics types in prometheus.
 
