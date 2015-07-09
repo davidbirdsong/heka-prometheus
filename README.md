@@ -128,8 +128,7 @@ address = "0.0.0.0:8325"
 type = "PrometheusOutput"
 message_matcher = 'Type == "heka.httpdata.request"'
 Address = "127.0.0.1:9112"
-encoder = "RstEncoder"
-default_ttl = '15s' # applied to any metrics w/ no expi
+default_ttl = '15s' # applied to any metrics w/ no expire field
 ```
 
 
