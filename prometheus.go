@@ -15,29 +15,32 @@ import (
 
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
 type hekaSample struct {
-	desc   *prometheus.Desc
-	single *ConstMetric
-	hist   *ConstHistogram
-	summ   *ConstSummary
+	desc      *prometheus.Desc
+	single    *ConstMetric
+	hist      *ConstHistogram
+	summ      *ConstSummary
+	valueType prometheus.ValueType
+	expires   time.Time
 }
 
-func (d *Descriptor) SetExpires(defaultTTL time.Duration, timestamp time.Time) {
-	if d.Expires != 0 {
+func expires(supplied int64, defaultTTL time.Duration, timestamp time.Time) time.Time {
+	if supplied != 0 {
 
-		d.expires = time.Unix(
+		return time.Unix(
 			0, timestamp.UnixNano(),
 		).Add(time.Duration(
-			d.Expires * 1e9,
+			supplied * 1e9,
 		))
 
 	} else {
-		d.expires = time.Unix(
+		return time.Unix(
 			0, timestamp.UnixNano(),
 		).Add(defaultTTL)
 	}
@@ -55,13 +58,13 @@ func newHekaSampleScalar(payload []byte, defaultTTL time.Duration, timestamp tim
 		return hsamples, err
 	}
 	for _, c := range cmetrics.Single {
-		c.SetExpires(defaultTTL, timestamp)
 		h := &hekaSample{
 			single: c,
 			desc: prometheus.NewDesc(
 				c.Name, c.Help, []string{},
 				c.Labels,
 			),
+			expires: expires(c.Expires, defaultTTL, timestamp),
 		}
 
 		switch strings.ToLower(c.ValueType) {
@@ -75,27 +78,49 @@ func newHekaSampleScalar(payload []byte, defaultTTL time.Duration, timestamp tim
 		}
 		hsamples = append(hsamples, h)
 	}
+	var f float64
 	for _, c := range cmetrics.Summary {
-		c.SetExpires(defaultTTL, timestamp)
-
+		c.quantiles = make(map[float64]float64)
 		h := &hekaSample{
 			summ: c,
 			desc: prometheus.NewDesc(
 				c.Name, c.Help, []string{},
 				c.Labels,
 			),
+
+			expires: expires(c.Expires, defaultTTL, timestamp),
+		}
+
+		for k, v := range c.Quantiles {
+
+			f, err = strconv.ParseFloat(k, 64)
+			if err != nil {
+				continue
+			}
+			c.quantiles[f] = v
+
 		}
 		hsamples = append(hsamples, h)
 	}
 
 	for _, c := range cmetrics.Histogram {
-		c.SetExpires(defaultTTL, timestamp)
+		c.buckets = make(map[float64]uint64)
+
+		for k, v := range c.Buckets {
+			f, err = strconv.ParseFloat(k, 64)
+			if err != nil {
+				continue
+			}
+			c.buckets[f] = v
+		}
+
 		h := &hekaSample{
 			hist: c,
 			desc: prometheus.NewDesc(
 				c.Name, c.Help, []string{},
 				c.Labels,
 			),
+			expires: expires(c.Expires, defaultTTL, timestamp),
 		}
 		hsamples = append(hsamples, h)
 
@@ -188,12 +213,11 @@ func (p *PromOut) Collect(ch chan<- prometheus.Metric) {
 		err error
 	)
 	for _, s := range samples {
+		if now.After(s.expires) {
+			continue
+		}
 
 		if s.single != nil {
-
-			if now.After(s.single.expires) {
-				continue
-			}
 
 			m, err = prometheus.NewConstMetric(
 				s.desc, s.single.valueType, s.single.Value,
@@ -206,14 +230,10 @@ func (p *PromOut) Collect(ch chan<- prometheus.Metric) {
 				continue
 			}
 		} else if s.hist != nil {
-			if now.After(s.hist.expires) {
-				continue
-			}
-
 			m, err = prometheus.NewConstHistogram(
 				s.desc, s.hist.Count,
 				s.hist.Sum,
-				s.hist.Buckets,
+				s.hist.buckets,
 			)
 			if err != nil {
 
@@ -224,13 +244,10 @@ func (p *PromOut) Collect(ch chan<- prometheus.Metric) {
 			}
 
 		} else if s.summ != nil {
-			if now.After(s.summ.expires) {
-				continue
-			}
 			m, err = prometheus.NewConstSummary(
 				s.desc, s.summ.Count,
 				s.summ.Sum,
-				s.summ.Quantiles,
+				s.summ.quantiles,
 			)
 
 		}
@@ -282,22 +299,11 @@ func (p *PromOut) Run(or pipeline.OutputRunner, ph pipeline.PluginHelper) (err e
 		}
 
 		now := time.Now()
-		var expires time.Time
 		p.rlock.Lock()
 		for k, s := range p.samples {
-			if s.single != nil {
-				expires = s.single.expires
-			} else if s.hist != nil {
-				expires = s.hist.expires
-
-			} else if s.summ != nil {
-				expires = s.summ.expires
-
-			}
-			if now.After(expires) {
+			if now.After(s.expires) {
 				delete(p.samples, k)
 			}
-
 		}
 		p.rlock.Unlock()
 

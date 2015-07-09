@@ -22,6 +22,22 @@ func TestBasicJson(t *testing.T) {
   ]
 }
 `
+	summ_data := `
+{
+  "summary": [
+    {
+      "name": "summary1",
+      "help": "summary of stuff",
+      "Sum": 100,
+      "Count": 2,
+      "Quantiles": {
+        "50.1": 80.2,
+        "90.1": 20.3
+      }
+    }
+  ]
+}
+`
 
 	all_in_one := `
 {
@@ -54,7 +70,7 @@ func TestBasicJson(t *testing.T) {
       "count": 1,
       "sum": 100,
       "Buckets": {
-        "100": 12
+        "100.0": 12
       }
     }
   ],
@@ -65,8 +81,8 @@ func TestBasicJson(t *testing.T) {
       "Sum": 100,
       "Count": 2,
       "Quantiles": {
-        "50": 80,
-        "90": 20
+        "50.1": 80.2,
+        "90.1": 20.3
       }
     }
   ]
@@ -77,8 +93,45 @@ func TestBasicJson(t *testing.T) {
 	if err = ffjson.Unmarshal([]byte(single), &m); err != nil {
 		t.Error(err)
 	}
+	var b []byte
 
-	if err = ffjson.Unmarshal([]byte(all_in_one), &m); err != nil {
+	histo_data := `
+{
+  "histogram": [
+    {
+      "name": "history1",
+      "help": "history of stuff",
+      "labels": {
+        "period": "20th century"
+      },
+      "count": 1,
+      "sum": 100,
+      "Buckets": {
+        "100.1": 12
+      }
+    }
+  ]
+}
+  `
+
+	hist := ConstHistogram{}
+	b = []byte(histo_data)
+	if err = ffjson.Unmarshal(b, &hist); err != nil {
+		t.Error(err)
+	}
+
+	summ := ConstSummary{}
+	b = []byte(summ_data)
+	if err = ffjson.Unmarshal(b, &summ); err != nil {
+		t.Error(err)
+	}
+
+	metrics := Metrics{}
+	b = []byte(histo_data)
+	if err = ffjson.Unmarshal(b, &metrics); err != nil {
+		t.Error(err)
+	}
+	if all_in_one == "foo" {
 		t.Error(err)
 	}
 

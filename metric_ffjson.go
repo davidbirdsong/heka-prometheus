@@ -29,11 +29,18 @@ func (mj *ConstHistogram) MarshalJSONBuf(buf fflib.EncodingBuffer) error {
 	fflib.FormatBits2(buf, uint64(mj.Count), 10, false)
 	buf.WriteString(`,"Sum":`)
 	fflib.AppendFloat(buf, float64(mj.Sum), 'g', -1, 64)
-	/* Falling back. type=map[float64]uint64 kind=map */
-	buf.WriteString(`,"Buckets":`)
-	err = buf.Encode(mj.Buckets)
-	if err != nil {
-		return err
+	if mj.Buckets == nil {
+		buf.WriteString(`,"Buckets":null`)
+	} else {
+		buf.WriteString(`,"Buckets":{ `)
+		for key, value := range mj.Buckets {
+			fflib.WriteJsonString(buf, key)
+			buf.WriteString(`:`)
+			fflib.FormatBits2(buf, uint64(value), 10, false)
+			buf.WriteByte(',')
+		}
+		buf.Rewind(1)
+		buf.WriteByte('}')
 	}
 	buf.WriteString(`,"Name":`)
 	fflib.WriteJsonString(buf, string(mj.Name))
@@ -364,10 +371,10 @@ handle_Sum:
 
 handle_Buckets:
 
-	/* handler: uj.Buckets type=map[float64]uint64 kind=map */
+	/* handler: uj.Buckets type=map[string]uint64 kind=map */
 
 	{
-		/* Falling back. type=map[float64]uint64 kind=map */
+		/* Falling back. type=map[string]uint64 kind=map */
 		tbuf, err := fs.CaptureField(tok)
 		if err != nil {
 			return fs.WrapErr(err)
@@ -943,11 +950,18 @@ func (mj *ConstSummary) MarshalJSONBuf(buf fflib.EncodingBuffer) error {
 	fflib.FormatBits2(buf, uint64(mj.Count), 10, false)
 	buf.WriteString(`,"Sum":`)
 	fflib.AppendFloat(buf, float64(mj.Sum), 'g', -1, 64)
-	/* Falling back. type=map[float64]float64 kind=map */
-	buf.WriteString(`,"Quantiles":`)
-	err = buf.Encode(mj.Quantiles)
-	if err != nil {
-		return err
+	if mj.Quantiles == nil {
+		buf.WriteString(`,"Quantiles":null`)
+	} else {
+		buf.WriteString(`,"Quantiles":{ `)
+		for key, value := range mj.Quantiles {
+			fflib.WriteJsonString(buf, key)
+			buf.WriteString(`:`)
+			fflib.AppendFloat(buf, float64(value), 'g', -1, 64)
+			buf.WriteByte(',')
+		}
+		buf.Rewind(1)
+		buf.WriteByte('}')
 	}
 	buf.WriteString(`,"Name":`)
 	fflib.WriteJsonString(buf, string(mj.Name))
@@ -1278,10 +1292,10 @@ handle_Sum:
 
 handle_Quantiles:
 
-	/* handler: uj.Quantiles type=map[float64]float64 kind=map */
+	/* handler: uj.Quantiles type=map[string]float64 kind=map */
 
 	{
-		/* Falling back. type=map[float64]float64 kind=map */
+		/* Falling back. type=map[string]float64 kind=map */
 		tbuf, err := fs.CaptureField(tok)
 		if err != nil {
 			return fs.WrapErr(err)
@@ -1295,338 +1309,6 @@ handle_Quantiles:
 
 	state = fflib.FFParse_after_value
 	goto mainparse
-
-handle_Name:
-
-	/* handler: uj.Name type=string kind=string */
-
-	{
-
-		{
-			if tok != fflib.FFTok_string && tok != fflib.FFTok_null {
-				return fs.WrapErr(fmt.Errorf("cannot unmarshal %s into Go value for string", tok))
-			}
-		}
-
-		if tok == fflib.FFTok_null {
-
-		} else {
-
-			uj.Name = string(fs.Output.String())
-
-		}
-	}
-
-	state = fflib.FFParse_after_value
-	goto mainparse
-
-handle_Labels:
-
-	/* handler: uj.Labels type=map[string]string kind=map */
-
-	{
-		/* Falling back. type=map[string]string kind=map */
-		tbuf, err := fs.CaptureField(tok)
-		if err != nil {
-			return fs.WrapErr(err)
-		}
-
-		err = json.Unmarshal(tbuf, &uj.Labels)
-		if err != nil {
-			return fs.WrapErr(err)
-		}
-	}
-
-	state = fflib.FFParse_after_value
-	goto mainparse
-
-handle_Help:
-
-	/* handler: uj.Help type=string kind=string */
-
-	{
-
-		{
-			if tok != fflib.FFTok_string && tok != fflib.FFTok_null {
-				return fs.WrapErr(fmt.Errorf("cannot unmarshal %s into Go value for string", tok))
-			}
-		}
-
-		if tok == fflib.FFTok_null {
-
-		} else {
-
-			uj.Help = string(fs.Output.String())
-
-		}
-	}
-
-	state = fflib.FFParse_after_value
-	goto mainparse
-
-handle_Expires:
-
-	/* handler: uj.Expires type=int64 kind=int64 */
-
-	{
-		if tok != fflib.FFTok_integer && tok != fflib.FFTok_null {
-			return fs.WrapErr(fmt.Errorf("cannot unmarshal %s into Go value for int64", tok))
-		}
-	}
-
-	{
-
-		if tok == fflib.FFTok_null {
-
-		} else {
-
-			tval, err := fflib.ParseInt(fs.Output.Bytes(), 10, 64)
-
-			if err != nil {
-				return fs.WrapErr(err)
-			}
-
-			uj.Expires = int64(tval)
-
-		}
-	}
-
-	state = fflib.FFParse_after_value
-	goto mainparse
-
-wantedvalue:
-	return fs.WrapErr(fmt.Errorf("wanted value token, but got token: %v", tok))
-wrongtokenerror:
-	return fs.WrapErr(fmt.Errorf("ffjson: wanted token: %v, but got token: %v output=%s", wantedTok, tok, fs.Output.String()))
-tokerror:
-	if fs.BigError != nil {
-		return fs.WrapErr(fs.BigError)
-	}
-	err = fs.Error.ToError()
-	if err != nil {
-		return fs.WrapErr(err)
-	}
-	panic("ffjson-generated: unreachable, please report bug.")
-done:
-	return nil
-}
-
-func (mj *Descriptor) MarshalJSON() ([]byte, error) {
-	var buf fflib.Buffer
-	err := mj.MarshalJSONBuf(&buf)
-	if err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-func (mj *Descriptor) MarshalJSONBuf(buf fflib.EncodingBuffer) error {
-	var err error
-	var obj []byte
-	_ = obj
-	_ = err
-	buf.WriteString(`{"Name":`)
-	fflib.WriteJsonString(buf, string(mj.Name))
-	if mj.Labels == nil {
-		buf.WriteString(`,"Labels":null`)
-	} else {
-		buf.WriteString(`,"Labels":{ `)
-		for key, value := range mj.Labels {
-			fflib.WriteJsonString(buf, key)
-			buf.WriteString(`:`)
-			fflib.WriteJsonString(buf, string(value))
-			buf.WriteByte(',')
-		}
-		buf.Rewind(1)
-		buf.WriteByte('}')
-	}
-	buf.WriteString(`,"Help":`)
-	fflib.WriteJsonString(buf, string(mj.Help))
-	buf.WriteString(`,"Expires":`)
-	fflib.FormatBits2(buf, uint64(mj.Expires), 10, mj.Expires < 0)
-	buf.WriteByte('}')
-	return nil
-}
-
-const (
-	ffj_t_Descriptorbase = iota
-	ffj_t_Descriptorno_such_key
-
-	ffj_t_Descriptor_Name
-
-	ffj_t_Descriptor_Labels
-
-	ffj_t_Descriptor_Help
-
-	ffj_t_Descriptor_Expires
-)
-
-var ffj_key_Descriptor_Name = []byte("Name")
-
-var ffj_key_Descriptor_Labels = []byte("Labels")
-
-var ffj_key_Descriptor_Help = []byte("Help")
-
-var ffj_key_Descriptor_Expires = []byte("Expires")
-
-func (uj *Descriptor) UnmarshalJSON(input []byte) error {
-	fs := fflib.NewFFLexer(input)
-	return uj.UnmarshalJSONFFLexer(fs, fflib.FFParse_map_start)
-}
-
-func (uj *Descriptor) UnmarshalJSONFFLexer(fs *fflib.FFLexer, state fflib.FFParseState) error {
-	var err error = nil
-	currentKey := ffj_t_Descriptorbase
-	_ = currentKey
-	tok := fflib.FFTok_init
-	wantedTok := fflib.FFTok_init
-
-mainparse:
-	for {
-		tok = fs.Scan()
-		//	println(fmt.Sprintf("debug: tok: %v  state: %v", tok, state))
-		if tok == fflib.FFTok_error {
-			goto tokerror
-		}
-
-		switch state {
-
-		case fflib.FFParse_map_start:
-			if tok != fflib.FFTok_left_bracket {
-				wantedTok = fflib.FFTok_left_bracket
-				goto wrongtokenerror
-			}
-			state = fflib.FFParse_want_key
-			continue
-
-		case fflib.FFParse_after_value:
-			if tok == fflib.FFTok_comma {
-				state = fflib.FFParse_want_key
-			} else if tok == fflib.FFTok_right_bracket {
-				goto done
-			} else {
-				wantedTok = fflib.FFTok_comma
-				goto wrongtokenerror
-			}
-
-		case fflib.FFParse_want_key:
-			// json {} ended. goto exit. woo.
-			if tok == fflib.FFTok_right_bracket {
-				goto done
-			}
-			if tok != fflib.FFTok_string {
-				wantedTok = fflib.FFTok_string
-				goto wrongtokenerror
-			}
-
-			kn := fs.Output.Bytes()
-			if len(kn) <= 0 {
-				// "" case. hrm.
-				currentKey = ffj_t_Descriptorno_such_key
-				state = fflib.FFParse_want_colon
-				goto mainparse
-			} else {
-				switch kn[0] {
-
-				case 'E':
-
-					if bytes.Equal(ffj_key_Descriptor_Expires, kn) {
-						currentKey = ffj_t_Descriptor_Expires
-						state = fflib.FFParse_want_colon
-						goto mainparse
-					}
-
-				case 'H':
-
-					if bytes.Equal(ffj_key_Descriptor_Help, kn) {
-						currentKey = ffj_t_Descriptor_Help
-						state = fflib.FFParse_want_colon
-						goto mainparse
-					}
-
-				case 'L':
-
-					if bytes.Equal(ffj_key_Descriptor_Labels, kn) {
-						currentKey = ffj_t_Descriptor_Labels
-						state = fflib.FFParse_want_colon
-						goto mainparse
-					}
-
-				case 'N':
-
-					if bytes.Equal(ffj_key_Descriptor_Name, kn) {
-						currentKey = ffj_t_Descriptor_Name
-						state = fflib.FFParse_want_colon
-						goto mainparse
-					}
-
-				}
-
-				if fflib.EqualFoldRight(ffj_key_Descriptor_Expires, kn) {
-					currentKey = ffj_t_Descriptor_Expires
-					state = fflib.FFParse_want_colon
-					goto mainparse
-				}
-
-				if fflib.SimpleLetterEqualFold(ffj_key_Descriptor_Help, kn) {
-					currentKey = ffj_t_Descriptor_Help
-					state = fflib.FFParse_want_colon
-					goto mainparse
-				}
-
-				if fflib.EqualFoldRight(ffj_key_Descriptor_Labels, kn) {
-					currentKey = ffj_t_Descriptor_Labels
-					state = fflib.FFParse_want_colon
-					goto mainparse
-				}
-
-				if fflib.SimpleLetterEqualFold(ffj_key_Descriptor_Name, kn) {
-					currentKey = ffj_t_Descriptor_Name
-					state = fflib.FFParse_want_colon
-					goto mainparse
-				}
-
-				currentKey = ffj_t_Descriptorno_such_key
-				state = fflib.FFParse_want_colon
-				goto mainparse
-			}
-
-		case fflib.FFParse_want_colon:
-			if tok != fflib.FFTok_colon {
-				wantedTok = fflib.FFTok_colon
-				goto wrongtokenerror
-			}
-			state = fflib.FFParse_want_value
-			continue
-		case fflib.FFParse_want_value:
-
-			if tok == fflib.FFTok_left_brace || tok == fflib.FFTok_left_bracket || tok == fflib.FFTok_integer || tok == fflib.FFTok_double || tok == fflib.FFTok_string || tok == fflib.FFTok_bool || tok == fflib.FFTok_null {
-				switch currentKey {
-
-				case ffj_t_Descriptor_Name:
-					goto handle_Name
-
-				case ffj_t_Descriptor_Labels:
-					goto handle_Labels
-
-				case ffj_t_Descriptor_Help:
-					goto handle_Help
-
-				case ffj_t_Descriptor_Expires:
-					goto handle_Expires
-
-				case ffj_t_Descriptorno_such_key:
-					err = fs.SkipField(tok)
-					if err != nil {
-						return fs.WrapErr(err)
-					}
-					state = fflib.FFParse_after_value
-					goto mainparse
-				}
-			} else {
-				goto wantedvalue
-			}
-		}
-	}
 
 handle_Name:
 
