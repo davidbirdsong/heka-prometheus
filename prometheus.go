@@ -80,7 +80,7 @@ func newHekaSampleScalar(payload []byte, defaultTTL time.Duration, timestamp tim
 	}
 	var f float64
 	for _, c := range cmetrics.Summary {
-		c.quantiles = make(map[float64]float64)
+		c._quantiles = make(map[float64]float64)
 		h := &hekaSample{
 			summ: c,
 			desc: prometheus.NewDesc(
@@ -97,21 +97,21 @@ func newHekaSampleScalar(payload []byte, defaultTTL time.Duration, timestamp tim
 			if err != nil {
 				continue
 			}
-			c.quantiles[f] = v
+			c._quantiles[f] = v
 
 		}
 		hsamples = append(hsamples, h)
 	}
 
 	for _, c := range cmetrics.Histogram {
-		c.buckets = make(map[float64]uint64)
+		c._buckets = make(map[float64]uint64)
 
 		for k, v := range c.Buckets {
 			f, err = strconv.ParseFloat(k, 64)
 			if err != nil {
 				continue
 			}
-			c.buckets[f] = v
+			c._buckets[f] = v
 		}
 
 		h := &hekaSample{
@@ -233,7 +233,7 @@ func (p *PromOut) Collect(ch chan<- prometheus.Metric) {
 			m, err = prometheus.NewConstHistogram(
 				s.desc, s.hist.Count,
 				s.hist.Sum,
-				s.hist.buckets,
+				s.hist._buckets,
 			)
 			if err != nil {
 
@@ -247,7 +247,7 @@ func (p *PromOut) Collect(ch chan<- prometheus.Metric) {
 			m, err = prometheus.NewConstSummary(
 				s.desc, s.summ.Count,
 				s.summ.Sum,
-				s.summ.quantiles,
+				s.summ._quantiles,
 			)
 
 		}
