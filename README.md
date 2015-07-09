@@ -21,54 +21,54 @@ Lists of each are sent as a subdocument of each key.
 entire body example:
 ```json
 {
-  "single": [
-    {
-      "name": "counter1",
-      "valuetype": "counter",
-      "help": "a counter that counts stuff",
-      "labels": {
-        "role": "barista, shift: morning"
-      }
-    },
-    {
-      "name": "gauge2",
-      "expires": 100,
-      "valuetype": "gauge",
-      "help": "the gas tank",
-      "labels": {
-        "car": "mine, grade: premium"
-      }
-    }
-  ],
-  "histogram": [
-    {
-      "name": "history1",
-      "help": "history of stuff",
-      "labels": {
-        "period": "20th century"
-      },
-      "count": 1,
-      "sum": 100,
-      "Buckets": {
-        "100": 12
-      }
-    }
-  ],
-  "summary": [
-    {
-      "name": "summary1",
-      "help": "summary of stuff",
-      "Sum": 100,
-      "Count": 2,
-      "Quantiles": {
-        "50": 80,
-        "90": 20
-      }
-    }
-  ]
+    "histogram": [
+        {
+            "Buckets": {
+                "100.1": 12
+            },
+            "count": 1,
+            "help": "history of stuff",
+            "labels": {
+                "period": "20th century"
+            },
+            "name": "history1",
+            "sum": 100
+        }
+    ],
+    "single": [
+        {
+            "help": "a counter that counts stuff",
+            "labels": {
+                "role": "barista", "shift": "morning"
+            },
+            "name": "counter1",
+            "value": 10000.123,
+            "valuetype": "counter"
+        },
+        {
+            "expires": 100,
+            "help": "the gas tank",
+            "value": 0.123,
+            "labels": {
+                "car": "mine", "grade": "premium"
+            },
+            "name": "gauge2",
+            "valuetype": "gauge"
+        }
+    ],
+    "summary": [
+        {
+            "Count": 2,
+            "Quantiles": {
+                "50": 80,
+                "90": 20
+            },
+            "Sum": 100,
+            "help": "summary of stuff",
+            "name": "summary1"
+        }
+    ]
 }
-
-
 ```
 
 Add the following ```toml``` to heka:
