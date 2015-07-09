@@ -21,15 +21,32 @@ import (
 )
 
 type hekaSample struct {
-	metric  *ConstMetric
-	Expires time.Time
-	desc    *prometheus.Desc
-	Type    prometheus.ValueType
+	desc   *prometheus.Desc
+	single *ConstMetric
+	hist   *ConstHistogram
+	summ   *ConstSummary
+}
+
+func (d *Descriptor) SetExpires(defaultTTL time.Duration, timestamp time.Time) {
+	if d.Expires != 0 {
+
+		d.expires = time.Unix(
+			0, timestamp.UnixNano(),
+		).Add(time.Duration(
+			d.Expires * 1e9,
+		))
+
+	} else {
+		d.expires = time.Unix(
+			0, timestamp.UnixNano(),
+		).Add(defaultTTL)
+	}
+
 }
 
 func newHekaSampleScalar(payload []byte, defaultTTL time.Duration, timestamp time.Time) ([]*hekaSample, error) {
 	var (
-		cmetrics ConstMetrics
+		cmetrics Metrics
 		err      error
 	)
 	hsamples := make([]*hekaSample, 0)
@@ -37,34 +54,53 @@ func newHekaSampleScalar(payload []byte, defaultTTL time.Duration, timestamp tim
 	if err = ffjson.Unmarshal(payload, &cmetrics); err != nil {
 		return hsamples, err
 	}
-	for _, c := range cmetrics {
-		h := new(hekaSample)
-		h.metric = c
-
-		if c.Expires != 0 {
-
-			h.Expires = time.Unix(0,
-				timestamp.UnixNano()).Add(time.Duration(c.Expires * 1e9))
-
-		} else {
-			h.Expires = time.Unix(0, timestamp.UnixNano()).Add(defaultTTL)
-
+	for _, c := range cmetrics.Single {
+		c.SetExpires(defaultTTL, timestamp)
+		h := &hekaSample{
+			single: c,
+			desc: prometheus.NewDesc(
+				c.Name, c.Help, []string{},
+				c.Labels,
+			),
 		}
-
-		h.desc = prometheus.NewDesc(c.Name, c.Help, []string{}, c.Labels)
 
 		switch strings.ToLower(c.ValueType) {
 
 		case "gauge":
-			h.Type = prometheus.GaugeValue
+			c.valueType = prometheus.GaugeValue
 		case "counter":
-			h.Type = prometheus.CounterValue
+			c.valueType = prometheus.CounterValue
 		default:
-			h.Type = prometheus.UntypedValue
+			c.valueType = prometheus.UntypedValue
+		}
+		hsamples = append(hsamples, h)
+	}
+	for _, c := range cmetrics.Summary {
+		c.SetExpires(defaultTTL, timestamp)
+
+		h := &hekaSample{
+			summ: c,
+			desc: prometheus.NewDesc(
+				c.Name, c.Help, []string{},
+				c.Labels,
+			),
+		}
+		hsamples = append(hsamples, h)
+	}
+
+	for _, c := range cmetrics.Histogram {
+		c.SetExpires(defaultTTL, timestamp)
+		h := &hekaSample{
+			hist: c,
+			desc: prometheus.NewDesc(
+				c.Name, c.Help, []string{},
+				c.Labels,
+			),
 		}
 		hsamples = append(hsamples, h)
 
 	}
+
 	return hsamples, nil
 }
 
@@ -147,28 +183,67 @@ func (p *PromOut) Collect(ch chan<- prometheus.Metric) {
 	p.rlock.RUnlock()
 
 	now := time.Now()
+	var (
+		m   prometheus.Metric
+		err error
+	)
 	for _, s := range samples {
-		if now.After(s.Expires) {
-			continue
-		}
-		m, err := prometheus.NewConstMetric(s.desc, s.Type, s.metric.Value)
-		if err != nil {
 
-			if p.errLogger != nil {
-				p.errLogger(err)
+		if s.single != nil {
+
+			if now.After(s.single.expires) {
+				continue
 			}
-			continue
+
+			m, err = prometheus.NewConstMetric(
+				s.desc, s.single.valueType, s.single.Value,
+			)
+			if err != nil {
+
+				if p.errLogger != nil {
+					p.errLogger(err)
+				}
+				continue
+			}
+		} else if s.hist != nil {
+			if now.After(s.hist.expires) {
+				continue
+			}
+
+			m, err = prometheus.NewConstHistogram(
+				s.desc, s.hist.Count,
+				s.hist.Sum,
+				s.hist.Buckets,
+			)
+			if err != nil {
+
+				if p.errLogger != nil {
+					p.errLogger(err)
+				}
+				continue
+			}
+
+		} else if s.summ != nil {
+			if now.After(s.summ.expires) {
+				continue
+			}
+			m, err = prometheus.NewConstSummary(
+				s.desc, s.summ.Count,
+				s.summ.Sum,
+				s.summ.Quantiles,
+			)
+
 		}
+
 		ch <- m
 	}
 }
 
 func (p *PromOut) Run(or pipeline.OutputRunner, ph pipeline.PluginHelper) (err error) {
 	var (
-		running    bool = true
-		pack       *pipeline.PipelinePack
-		hsamples   []*hekaSample
-		metricType string
+		running  bool = true
+		pack     *pipeline.PipelinePack
+		hsamples []*hekaSample
 	)
 
 	ticker := time.NewTicker(time.Minute).C
@@ -179,59 +254,52 @@ func (p *PromOut) Run(or pipeline.OutputRunner, ph pipeline.PluginHelper) (err e
 				continue
 			}
 
-			metricType = "scalar"
-
-			if f := pack.Message.FindFirstField("metricType"); f != nil {
-				if s := f.GetValueString(); len(s) == 1 {
-					metricType = s[0]
+			payload := []byte(pack.Message.GetPayload())
+			msgTime := time.Unix(0, pack.Message.GetTimestamp())
+			hsamples, err = newHekaSampleScalar(
+				payload, p.defaultDuration, msgTime,
+			)
+			if err == nil {
+				p.rlock.Lock()
+				for _, h := range hsamples {
+					or.LogMessage(h.desc.String())
+					p.samples[h.desc.String()] = h
+					p.inSuccess.Inc()
 				}
-			}
-			switch strings.ToLower(metricType) {
-			case "scalar", "":
-				payload := []byte(pack.Message.GetPayload())
-				msgTime := time.Unix(0, pack.Message.GetTimestamp())
-				hsamples, err = newHekaSampleScalar(
-					payload, p.defaultDuration, msgTime,
-				)
-				if err == nil {
-					p.rlock.Lock()
-					for _, h := range hsamples {
-						or.LogMessage(h.desc.String())
-						p.samples[h.desc.String()] = h
-						p.inSuccess.Inc()
-					}
-					p.rlock.Unlock()
+				p.rlock.Unlock()
 
-				} else {
-					b, _ := or.Encode(pack)
-					or.LogError(fmt.Errorf("%v message\n<msg>\n%s\n</msg>", err, b))
-
-					p.inFailure.Inc()
-				}
-
-			default:
-				or.LogError(fmt.Errorf("unsupported metricType: %s", metricType))
-				continue
+			} else {
+				b, _ := or.Encode(pack)
+				or.LogError(fmt.Errorf("%v message\n<msg>\n%s\n</msg>", err, b))
 
 				p.inFailure.Inc()
-				pack.Recycle()
-
 			}
 
 			pack.Recycle()
 
 		case <-ticker:
 			// clearn up expired samples
-			now := time.Now()
-			p.rlock.Lock()
-			for k, sample := range p.samples {
-				if now.After(sample.Expires) {
-					delete(p.samples, k)
-				}
+		}
+
+		now := time.Now()
+		var expires time.Time
+		p.rlock.Lock()
+		for k, s := range p.samples {
+			if s.single != nil {
+				expires = s.single.expires
+			} else if s.hist != nil {
+				expires = s.hist.expires
+
+			} else if s.summ != nil {
+				expires = s.summ.expires
+
 			}
-			p.rlock.Unlock()
+			if now.After(expires) {
+				delete(p.samples, k)
+			}
 
 		}
+		p.rlock.Unlock()
 
 	}
 	return nil

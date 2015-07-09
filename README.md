@@ -15,44 +15,66 @@ As advertised the internal message format has changed from a native Heka message
 The json payload solves that and also means external stuff can be blindly forwarded too.
 
 ### Usage
-Send a heka message to this output plugin w/ a json message Payload 
+Send a heka message to this output plugin w/ a json message Payload.
+
+The top level keys are one of ```single```, ```histogram```, and ```summary``` which translate to the different Constant Metrics types in prometheus.
+
+Lists of each are sent as a subdocument of each key.
+
+```single``` requires the ```valuetype``` key which specifies counter or gauge.
+
+entire body example:
 ```json
-[{
-  "name": "foo_metric1",
-  "help": "foo metric counts stuff",
-  "value": 100, # will 
-  "valuetype": "Counter",
-  "labels": {
-    "service": "hooman1",
-    "role": "hooman_runner1"
-  }
-},
 {
-  "name": "foo_metric2",
-  "help": "foo metric counts stuff",
-  "value": 200,
-  "expires": 20,
-  "valuetype": "Counter",
-  "labels": {
-    "service": "hooman-2",
-    "role": "hooman_runner-2"
-  }
+  "single": [
+    {
+      "name": "counter1",
+      "valuetype": "counter",
+      "help": "a counter that counts stuff",
+      "labels": {
+        "role": "barista, shift: morning"
+      }
+    },
+    {
+      "name": "gauge2",
+      "expires": 100,
+      "valuetype": "gauge",
+      "help": "the gas tank",
+      "labels": {
+        "car": "mine, grade: premium"
+      }
+    }
+  ],
+  "histogram": [
+    {
+      "name": "history1",
+      "help": "history of stuff",
+      "labels": {
+        "period": "20th century"
+      },
+      "count": 1,
+      "sum": 100,
+      "Buckets": {
+        "100": 12
+      }
+    }
+  ],
+  "summary": [
+    {
+      "name": "summary1",
+      "help": "summary of stuff",
+      "Sum": 100,
+      "Count": 2,
+      "Quantiles": {
+        "50": 80,
+        "90": 20
+      }
+    }
+  ]
 }
-]
-```
 
-```lua
-{
-	Payload = <json>
-	Fields = {
-		metricType = 'scalar',
-	}
-}
 
 ```
-use *scalar* for ```Fields.metricType``` for counters and gauges.
-
-future types could specify Summaries and Histograms
 
 Add the following ```toml``` to heka:
 ```toml

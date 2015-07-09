@@ -1,35 +1,91 @@
 package prometheus
 
 import (
+	"github.com/pquerna/ffjson/ffjson"
+
 	"testing"
-	"time"
+	//"time"
 )
 
-func TestBufPool(t *testing.T) {
-	payload := `
-[{
-  "name": "foo_metric1",
-  "help": "foo metric counts stuff",
-  "value": 100,
-  "valuetype": "Counter",
-  "labels": {
-    "service": "hooman1",
-    "role": "hooman_runner1"
-  }
-},
-{
-  "name": "foo_metric2",
-  "help": "foo metric counts stuff",
-  "value": 200,
-  "expires": 20,
-  "valuetype": "Counter",
-  "labels": {
-    "service": "hooman-2",
-    "role": "hooman_runner-2"
-  }
+func TestBasicJson(t *testing.T) {
+	single := `
+	{
+  "single": [
+    {
+      "name": "counter1",
+      "valuetype": "counter",
+      "help": "a counter that counts stuff",
+      "labels": {
+        "role": "barista, shift: morning"
+      }
+    }
+  ]
 }
-]
 `
+
+	all_in_one := `
+{
+  "single": [
+    {
+      "name": "counter1",
+      "valuetype": "counter",
+      "help": "a counter that counts stuff",
+      "labels": {
+        "role": "barista, shift: morning"
+      }
+    },
+    {
+      "name": "gauge2",
+      "expires": 100,
+      "valuetype": "gauge",
+      "help": "the gas tank",
+      "labels": {
+        "car": "mine, grade: premium"
+      }
+    }
+  ],
+  "histogram": [
+    {
+      "name": "history1",
+      "help": "history of stuff",
+      "labels": {
+        "period": "20th century"
+      },
+      "count": 1,
+      "sum": 100,
+      "Buckets": {
+        "100": 12
+      }
+    }
+  ],
+  "summary": [
+    {
+      "name": "summary1",
+      "help": "summary of stuff",
+      "Sum": 100,
+      "Count": 2,
+      "Quantiles": {
+        "50": 80,
+        "90": 20
+      }
+    }
+  ]
+}
+`
+	var err error
+	m := ConstMetric{}
+	if err = ffjson.Unmarshal([]byte(single), &m); err != nil {
+		t.Error(err)
+	}
+
+	if err = ffjson.Unmarshal([]byte(all_in_one), &m); err != nil {
+		t.Error(err)
+	}
+
+}
+
+/*
+func TestBufPool(t *testing.T) {
 	timestamp := time.Now()
 	d := time.Second * 10
 	hsamples, err := newHekaSampleScalar([]byte(payload), d, timestamp)
@@ -75,3 +131,4 @@ func TestBufPool(t *testing.T) {
 	}
 
 }
+*/
