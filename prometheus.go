@@ -13,6 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -182,6 +183,10 @@ func (p *PromOut) Init(config interface{}) error {
 		return e
 	}
 
+	http.HandleFunc("/health", func(w http.ResponseWriter, req *http.Request) {
+		io.WriteString(w, "pong!\n")
+
+	})
 	http.Handle("/metrics", prometheus.Handler())
 	go http.ListenAndServe(p.config.Address, nil)
 	return nil
